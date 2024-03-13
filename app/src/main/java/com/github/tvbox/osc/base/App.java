@@ -1,7 +1,12 @@
 package com.github.tvbox.osc.base;
 
+import android.os.Environment;
+
 import androidx.multidex.MultiDexApplication;
+
+import com.github.catvod.crawler.JarLoader;
 import com.github.catvod.crawler.JsLoader;
+import com.github.tvbox.osc.R;
 import com.github.tvbox.osc.callback.EmptyCallback;
 import com.github.tvbox.osc.callback.LoadingCallback;
 import com.github.tvbox.osc.data.AppDataManager;
@@ -13,11 +18,18 @@ import com.github.tvbox.osc.util.LocaleHelper;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.OkGoHelper;
 import com.github.tvbox.osc.util.PlayerHelper;
+import com.github.tvbox.osc.util.SubtitleHelper;
+import com.hjq.permissions.XXPermissions;
 import com.kingja.loadsir.core.LoadSir;
 import com.orhanobut.hawk.Hawk;
 import com.p2p.P2PClass;
 import com.whl.quickjs.android.QuickJSLoader;
+
 import java.io.File;
+
+import io.github.inflationx.calligraphy3.CalligraphyConfig;
+import io.github.inflationx.calligraphy3.CalligraphyInterceptor;
+import io.github.inflationx.viewpump.ViewPump;
 import me.jessyan.autosize.AutoSizeConfig;
 import me.jessyan.autosize.unit.Subunits;
 
@@ -31,16 +43,21 @@ public class App extends MultiDexApplication {
     private static P2PClass p;
     public static String burl;
     private static String dashData;
-    
+    public static ViewPump viewPump = null;
+
+
     @Override
     public void onCreate() {
         super.onCreate();
         instance = this;
+        SubtitleHelper.initSubtitleColor(this);
         initParams();
         // takagen99 : Initialize Locale
         initLocale();
         // OKGo
         OkGoHelper.init();
+        // 闭关检查模式
+        XXPermissions.setCheckMode(false);
         // Get EPG Info
         EpgUtil.init();
         // 初始化Web服务器
@@ -67,12 +84,25 @@ public class App extends MultiDexApplication {
 
         // Add JS support
         QuickJSLoader.init();
+
+        // add font support, my tv embed font not include emoji
+        String extStorageDir = Environment.getExternalStorageDirectory().getAbsolutePath();
+        File fontFile = new File(extStorageDir + "/tvbox.ttf");
+        if (fontFile.exists()) {
+            viewPump = ViewPump.builder()
+                    .addInterceptor(new CalligraphyInterceptor(
+                            new CalligraphyConfig.Builder()
+                                    .setDefaultFontPath(fontFile.getAbsolutePath())
+                                    .setFontAttrId(R.attr.fontPath)
+                                    .build()))
+                    .build();
+        }
     }
 
     public static P2PClass getp2p() {
         try {
             if (p == null) {
-                p = new P2PClass(instance.getExternalCacheDir().getAbsolutePath());
+                p = new P2PClass(FileUtils.getExternalCachePath());
             }
             return p;
         } catch (Exception e) {
@@ -96,7 +126,7 @@ public class App extends MultiDexApplication {
         // 播放器选项
         putDefault(HawkConfig.SHOW_PREVIEW, true);           //窗口预览: true=开启, false=关闭
         putDefault(HawkConfig.PLAY_SCALE, 0);                //画面缩放: 0=默认, 1=16:9, 2=4:3, 3=填充, 4=原始, 5=裁剪
-        putDefault(HawkConfig.PIC_IN_PIC, true);             //画中画: true=开启, false=关闭
+        putDefault(HawkConfig.BACKGROUND_PLAY_TYPE, 0);      //后台：0=关闭, 1=开启, 2=画中画
         putDefault(HawkConfig.PLAY_TYPE, 1);                 //播放器: 0=系统, 1=IJK, 2=Exo, 3=MX, 4=Reex, 5=Kodi
         putDefault(HawkConfig.IJK_CODEC, "硬解码");           //IJK解码: 软解码, 硬解码
         // 系统选项
@@ -135,6 +165,7 @@ public class App extends MultiDexApplication {
     public void setDashData(String data) {
         dashData = data;
     }
+
     public String getDashData() {
         return dashData;
     }
