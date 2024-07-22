@@ -4,7 +4,6 @@ import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -75,6 +74,7 @@ import com.github.tvbox.osc.util.AdBlocker;
 import com.github.tvbox.osc.util.DefaultConfig;
 import com.github.tvbox.osc.util.FileUtils;
 import com.github.tvbox.osc.util.HawkConfig;
+import com.github.tvbox.osc.util.HawkUtils;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.M3U8;
 import com.github.tvbox.osc.util.MD5;
@@ -92,6 +92,7 @@ import com.lzy.okgo.model.HttpHeaders;
 import com.lzy.okgo.model.Response;
 import com.obsez.android.lib.filechooser.ChooserDialog;
 import com.orhanobut.hawk.Hawk;
+
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -171,6 +172,12 @@ public class PlayFragment extends BaseLazyFragment {
                 if (msg.what == 100) {
                     stopParse();
                     errorWithRetry("嗅探错误", false);
+                } else if (msg.what == 200) {
+                    if (mHandler.hasMessages(100)) {
+                        setTip("加载完成，嗅探视频中", true, false);
+                    }
+                } else if (msg.what == 300) {
+                    setTip((String)msg.obj, false, true);
                 }
                 return false;
             }
@@ -298,6 +305,7 @@ public class PlayFragment extends BaseLazyFragment {
 
         });
         mVideoView.setVideoController(mController);
+        mVideoView.setmHandler(mHandler);
     }
 
     //设置字幕
@@ -546,7 +554,7 @@ public class PlayFragment extends BaseLazyFragment {
     void openMyVideo() {
         Intent i = new Intent();
         i.addCategory(Intent.CATEGORY_DEFAULT);
-        i.setAction(android.content.Intent.ACTION_VIEW);
+        i.setAction(Intent.ACTION_VIEW);
         if (videoURL == null) return;
         i.setDataAndType(Uri.parse(videoURL), "video/*");
         startActivity(Intent.createChooser(i, "Open Video with ..."));
@@ -636,7 +644,7 @@ public class PlayFragment extends BaseLazyFragment {
                 .headers(hheaders)
                 .execute(new AbsCallback<String>() {
                     @Override
-                    public void onSuccess(com.lzy.okgo.model.Response<String> response) {
+                    public void onSuccess(Response<String> response) {
                         String content = response.body();
                         if (!content.startsWith("#EXTM3U")) {
                             startPlayUrl(url, headers);
@@ -689,7 +697,7 @@ public class PlayFragment extends BaseLazyFragment {
                                 .headers(hheaders)
                                 .execute(new AbsCallback<String>() {
                                     @Override
-                                    public void onSuccess(com.lzy.okgo.model.Response<String> response) {
+                                    public void onSuccess(Response<String> response) {
                                         String content = response.body();
                                         int ilast = finalforwardurl.lastIndexOf('/');
                                         RemoteServer.m3u8Content = M3U8.purify(finalforwardurl.substring(0, ilast + 1), content);
@@ -708,7 +716,7 @@ public class PlayFragment extends BaseLazyFragment {
                                     }
 
                                     @Override
-                                    public void onError(com.lzy.okgo.model.Response<String> response) {
+                                    public void onError(Response<String> response) {
                                         super.onError(response);
                                         startPlayUrl(url, headers);
                                     }
@@ -721,7 +729,7 @@ public class PlayFragment extends BaseLazyFragment {
                     }
 
                     @Override
-                    public void onError(com.lzy.okgo.model.Response<String> response) {
+                    public void onError(Response<String> response) {
                         super.onError(response);
                         startPlayUrl(url, headers);
                     }
@@ -988,7 +996,19 @@ public class PlayFragment extends BaseLazyFragment {
         }
         try {
             if (!mVodPlayerCfg.has("pl")) {
-                mVodPlayerCfg.put("pl", (sourceBean.getPlayerType() == -1) ? (int) Hawk.get(HawkConfig.PLAY_TYPE, 1) : sourceBean.getPlayerType());
+                int playType = Hawk.get(HawkConfig.PLAY_TYPE, 1);
+                boolean configurationFile = HawkUtils.getVodPlayerPreferredConfigurationFile();
+                int playerType = sourceBean.getPlayerType();
+                if (configurationFile && playerType != -1) {
+                    playType = playerType;
+                }
+                mVodPlayerCfg.put("pl", playType);
+            } else {
+//                boolean configurationFile = HawkUtils.getVodPlayerPreferredConfigurationFile();
+//                if (!configurationFile) {
+//                    int playType = Hawk.get(HawkConfig.PLAY_TYPE, 0);
+//                    mVodPlayerCfg.put("pl", playType);
+//                }
             }
             if (!mVodPlayerCfg.has("pr")) {
                 mVodPlayerCfg.put("pr", Hawk.get(HawkConfig.PLAY_RENDER, 0));
@@ -1803,6 +1823,8 @@ public class PlayFragment extends BaseLazyFragment {
             if (!click.isEmpty()) {
                 mSysWebView.loadUrl("javascript:" + click);
             }
+
+            mHandler.sendEmptyMessage(200);
         }
 
         WebResourceResponse checkIsVideo(String url, HashMap<String, String> headers) {

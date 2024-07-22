@@ -4,7 +4,6 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.net.TrafficStats;
-import android.os.Build;
 import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -26,7 +25,8 @@ import androidx.media3.ui.PlayerView;
 
 import com.github.tvbox.osc.base.App;
 import com.github.tvbox.osc.util.HawkConfig;
-import com.github.tvbox.osc.util.LOG;
+import com.github.tvbox.osc.util.HawkUtils;
+import com.github.tvbox.osc.util.PlayerHelper;
 import com.orhanobut.hawk.Hawk;
 
 import java.util.Locale;
@@ -56,6 +56,8 @@ public class ExoMediaPlayer extends AbstractPlayer implements Player.Listener {
     private long lastTotalRxBytes = 0;
     private long lastTimeStamp = 0;
 
+    private int retriedTimes = 0;
+
     public ExoMediaPlayer(Context context) {
         mAppContext = context.getApplicationContext();
         mMediaSourceHelper = ExoMediaSourceHelper.getInstance(context);
@@ -65,14 +67,11 @@ public class ExoMediaPlayer extends AbstractPlayer implements Player.Listener {
     @Override
     public void initPlayer() {
         if (mRenderersFactory == null) {
-            mRenderersFactory = new DefaultRenderersFactory(mAppContext);
+            mRenderersFactory = HawkUtils.createExoRendererActualValue(mAppContext);
         }
         //https://github.com/androidx/media/blob/release/libraries/decoder_ffmpeg/README.md
-        if ("MiTV-MFTR0".equals(Build.MODEL)) {
-            mRenderersFactory.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
-        }else{
-            mRenderersFactory.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
-        }
+        mRenderersFactory.setExtensionRendererMode(HawkUtils.getExoRendererModeActualValue());
+
         if (mTrackSelector == null) {
             mTrackSelector = new DefaultTrackSelector(mAppContext);
         }
@@ -97,6 +96,7 @@ public class ExoMediaPlayer extends AbstractPlayer implements Player.Listener {
         setOptions();
 
         mMediaPlayer.addListener(this);
+        mMediaSourceHelper.clearSocksProxy();
     }
 
     public DefaultTrackSelector getTrackSelector() {
@@ -320,15 +320,45 @@ public class ExoMediaPlayer extends AbstractPlayer implements Player.Listener {
     public void onPlayerError(@NonNull PlaybackException error) {
         errorCode = error.errorCode;
         Log.e("tag--", "" + error.errorCode);
-        if (path != null) {
+        String proxyServer = Hawk.get(HawkConfig.PROXY_SERVER, "");
+        if ("".equals(proxyServer)) {
+            if (retriedTimes == 0) {
+                retriedTimes = 1;
+                setDataSource(path, headers);
+                prepareAsync();
+                start();
+            } else {
+                if (mPlayerEventListener != null) {
+                    mPlayerEventListener.onError(error.errorCode, PlayerHelper.getRootCauseMessage(error));
+                }
+            }
+            return;
+        }
+        String[] proxyServers = proxyServer.split("\\s+|,|;|，");
+        if (retriedTimes > proxyServers.length - 1) {
+            if (mPlayerEventListener != null) {
+                mPlayerEventListener.onError(error.errorCode, PlayerHelper.getRootCauseMessage(error));
+            }
+            return;
+        }
+        String[] ps = proxyServers[retriedTimes].split(":");
+        if (ps.length != 2) {
+            if (mPlayerEventListener != null) {
+                mPlayerEventListener.onError(error.errorCode, PlayerHelper.getRootCauseMessage(error));
+            }
+            return;
+        }
+        try {
+            mMediaSourceHelper.setSocksProxy(ps[0], Integer.parseInt(ps[1]));
+            retriedTimes++;
             setDataSource(path, headers);
-            path = null;
             prepareAsync();
             start();
-        } else {
+        } catch (Exception e) {
             if (mPlayerEventListener != null) {
-                mPlayerEventListener.onError();
+                mPlayerEventListener.onError(error.errorCode, PlayerHelper.getRootCauseMessage(error));
             }
+            return;
         }
     }
 

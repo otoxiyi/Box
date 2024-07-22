@@ -2,6 +2,7 @@ package com.github.tvbox.osc.util;
 
 import android.content.Context;
 
+import com.blankj.utilcode.util.ToastUtils;
 import com.github.tvbox.osc.api.ApiConfig;
 import com.github.tvbox.osc.bean.IJKCode;
 import com.github.tvbox.osc.player.EXOmPlayer;
@@ -173,6 +174,14 @@ public class PlayerHelper {
                 break;
         }
         return scaleText;
+    }
+
+    public static String getRootCauseMessage(Throwable th) {
+        for (int i=0; i<10; i++) {
+            if (th.getCause() == null) return th.getLocalizedMessage();
+            else th = th.getCause();
+        }
+        return th.getLocalizedMessage();
     }
 
 }
